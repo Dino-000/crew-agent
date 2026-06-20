@@ -12,24 +12,19 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "trello-crew-playground"
-    trigger_mode: Literal["webhook", "poll"] = "webhook"
+    trigger_mode: Literal["webhook", "poll"] = "poll"
     poll_interval_seconds: int = 60
-    verify_trello_signature: bool = True
 
     trello_api_key: str = Field(default="", alias="TRELLO_API_KEY")
     trello_token: str = Field(default="", alias="TRELLO_TOKEN")
-    trello_secret: str = Field(default="", alias="TRELLO_SECRET")
     trello_board_id: str = Field(default="", alias="TRELLO_BOARD_ID")
     trello_to_do_list_name: str = Field(default="To Do", alias="TRELLO_TO_DO_LIST_NAME")
     trello_in_progress_list_name: str = Field(default="In Progress", alias="TRELLO_IN_PROGRESS_LIST_NAME")
     trello_done_list_name: str = Field(default="Done", alias="TRELLO_DONE_LIST_NAME")
-    trello_webhook_callback_url: str = Field(
-        default="http://localhost:8000/webhook/trello",
-        alias="TRELLO_WEBHOOK_CALLBACK_URL",
-    )
 
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
+    use_crewai: bool = Field(default=False, alias="USE_CREWAI")
 
     output_dir: Path = Field(default=Path("output"), alias="OUTPUT_DIR")
     state_file: Path = Field(default=Path("data/state.json"), alias="STATE_FILE")

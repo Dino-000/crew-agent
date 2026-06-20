@@ -22,6 +22,25 @@ class TrelloCrewWorkflow:
         )
 
     def run(self, card: TrelloCard, list_name: str) -> WorkflowResult:
+        if not self.settings.use_crewai:
+            raw_output = self._fallback_output(card, list_name, RuntimeError("CrewAI disabled by config"))
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            file_name = f"{timestamp}-{card.id}.md"
+            output_path = self.settings.output_dir / file_name
+            output_path.write_text(raw_output, encoding="utf-8")
+
+            comment_text = self._build_comment(card, list_name, output_path, raw_output)
+
+            return WorkflowResult(
+                card_id=card.id,
+                card_name=card.name,
+                list_name=list_name,
+                markdown_path=str(output_path),
+                comment_text=comment_text,
+                raw_output=raw_output,
+                meta={"file_name": file_name, "mode": "local"},
+            )
+
         llm = LLM(model=f"openai/{self.settings.openai_model}")
 
         analyst = Agent(
@@ -31,7 +50,7 @@ class TrelloCrewWorkflow:
                 "You are precise, practical, and good at turning rough notes into clear requirements. "
                 "You ask what is missing and produce a compact structured brief."
             ),
-            verbose=True,
+            verbose=False,
             llm=llm,
         )
 
@@ -42,7 +61,7 @@ class TrelloCrewWorkflow:
                 "You write simple, organized training materials with practical explanations and examples. "
                 "You prefer plain language and a clean structure."
             ),
-            verbose=True,
+            verbose=False,
             llm=llm,
         )
 
@@ -53,7 +72,7 @@ class TrelloCrewWorkflow:
                 "You review documents like a senior editor. "
                 "You remove ambiguity, tighten wording, and make the output easy to use."
             ),
-            verbose=True,
+            verbose=False,
             llm=llm,
         )
 
@@ -94,11 +113,15 @@ class TrelloCrewWorkflow:
             agents=[analyst, writer, reviewer],
             tasks=[analyst_task, writer_task, review_task],
             process=Process.sequential,
-            verbose=True,
+            verbose=False,
+            tracing=False,
         )
 
-        result = crew.kickoff(inputs={"card_title": card.name, "card_desc": card.desc})
-        raw_output = getattr(result, "raw", str(result))
+        try:
+            result = crew.kickoff(inputs={"card_title": card.name, "card_desc": card.desc})
+            raw_output = getattr(result, "raw", str(result))
+        except Exception as exc:
+            raw_output = self._fallback_output(card, list_name, exc)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         file_name = f"{timestamp}-{card.id}.md"
         output_path = self.settings.output_dir / file_name
@@ -115,6 +138,33 @@ class TrelloCrewWorkflow:
             raw_output=raw_output,
             meta={"file_name": file_name},
         )
+
+    def _fallback_output(self, card: TrelloCard, list_name: str, exc: Exception) -> str:
+        description = (card.desc or "").strip()
+        lines = [
+            f"# Training Document Draft: {card.name}",
+            "",
+            "## Inferred Objective",
+            f"Create a training document about {card.name.lower()} for the team.",
+            "",
+            "## Source Context",
+            f"- Trello list: {list_name}",
+            f"- Card URL: {card.url}",
+            "",
+            "## Key Notes",
+            description or "- No card description was provided.",
+            "",
+            "## Suggested Outline",
+            "1. Introduction",
+            "2. Core concepts",
+            "3. Practical examples",
+            "4. Common mistakes",
+            "5. Next steps",
+            "",
+            "## Delivery Note",
+            f"OpenAI execution failed, so this draft was generated locally. Error: {exc}",
+        ]
+        return "\n".join(lines)
 
     def _build_comment(self, card: TrelloCard, list_name: str, output_path: Path, raw_output: str) -> str:
         header = [

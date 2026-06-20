@@ -2,8 +2,8 @@
 
 Small Python playground that:
 
-1. Watches a Trello board.
-2. When a card moves to `In Progress`, it reads the card requirement.
+1. Polls a Trello board.
+2. When a new card appears in `In Progress`, it reads the card requirement.
 3. Runs a 3-agent CrewAI workflow.
 4. Posts the result back to Trello.
 5. Moves the card to `Done`.
@@ -17,7 +17,7 @@ Small Python playground that:
 
 ## Files
 
-- `app.py` - FastAPI webhook server and optional poll loop
+- `app.py` - FastAPI app with a poll loop and health endpoints
 - `trello_crew_playground/settings.py` - all configuration in one place
 - `trello_crew_playground/trello_client.py` - Trello API wrapper
 - `trello_crew_playground/workflow.py` - CrewAI workflow
@@ -39,18 +39,12 @@ pip install -r requirements.txt
 uvicorn app:app --reload
 ```
 
-## Trello webhook
+## How it works
 
-Create a Trello webhook that points to:
-
-`http://localhost:8000/webhook/trello`
-
-Trello sends an HTTP POST to your callback URL when the watched model changes. Trello also supports optional webhook signature verification through the `X-Trello-Webhook` header.
-
-## Trigger mode
-
-- `TRIGGER_MODE=webhook` - recommended
-- `TRIGGER_MODE=poll` - background interval poll fallback
+- The app checks your Trello board on a fixed interval.
+- It looks for cards whose current list is `In Progress`.
+- If a card has not already been processed, the workflow runs once.
+- The result is added as a Trello comment or saved to a file, then the card is moved to `Done`.
 
 ## Notes
 
