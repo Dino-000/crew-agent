@@ -22,9 +22,16 @@ class Settings(BaseSettings):
     trello_in_progress_list_name: str = Field(default="In Progress", alias="TRELLO_IN_PROGRESS_LIST_NAME")
     trello_done_list_name: str = Field(default="Done", alias="TRELLO_DONE_LIST_NAME")
 
+    # Local LLM settings (Ollama)
+    ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
+    ollama_model: str = Field(default="mistral", alias="OLLAMA_MODEL")
+    
+    # Legacy OpenAI settings (kept for backward compatibility)
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
-    use_crewai: bool = Field(default=False, alias="USE_CREWAI")
+    
+    use_crewai: bool = Field(default=True, alias="USE_CREWAI")
+    use_local_llm: bool = Field(default=True, alias="USE_LOCAL_LLM")
 
     output_dir: Path = Field(default=Path("output"), alias="OUTPUT_DIR")
     state_file: Path = Field(default=Path("data/state.json"), alias="STATE_FILE")

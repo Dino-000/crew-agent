@@ -7,11 +7,22 @@ from crewai import Agent, Crew, LLM, Process, Task
 
 from trello_crew_playground.schemas import TrelloCard, WorkflowResult
 from trello_crew_playground.settings import Settings
+from trello_crew_playground.tools import (
+    extract_links,
+    extract_repositories,
+    fetch_webpage,
+)
 
 
 class TrelloCrewWorkflow:
     def __init__(self, settings: Settings):
         self.settings = settings
+
+    def _ollama_base_url(self) -> str:
+        base_url = self.settings.ollama_base_url.rstrip("/")
+        if not base_url.endswith("/v1"):
+            base_url = f"{base_url}/v1"
+        return base_url
 
     def _base_context(self, card: TrelloCard, list_name: str) -> str:
         return (
@@ -41,7 +52,15 @@ class TrelloCrewWorkflow:
                 meta={"file_name": file_name, "mode": "local"},
             )
 
-        llm = LLM(model=f"openai/{self.settings.openai_model}")
+        # Use local Ollama LLM if enabled, otherwise fall back to OpenAI
+        if self.settings.use_local_llm:
+            llm = LLM(
+                model=self.settings.ollama_model,
+                base_url=self._ollama_base_url(),
+                api_key="ollama",  # Ollama doesn't require authentication by default
+            )
+        else:
+            llm = LLM(model=f"openai/{self.settings.openai_model}")
 
         analyst = Agent(
             role="Requirement Analyst",
@@ -52,6 +71,18 @@ class TrelloCrewWorkflow:
             ),
             verbose=False,
             llm=llm,
+        )
+
+        web_researcher = Agent(
+            role="Web Researcher",
+            goal="Fetch and analyze web pages to find specific information and answer questions.",
+            backstory=(
+                "You are skilled at browsing the web, extracting relevant information, "
+                "and answering specific questions about page content."
+            ),
+            verbose=False,
+            llm=llm,
+            tools=[fetch_webpage, extract_links, extract_repositories],
         )
 
         writer = Agent(
@@ -109,9 +140,21 @@ class TrelloCrewWorkflow:
             agent=reviewer,
         )
 
+        research_task = Task(
+            description=(
+                "If the card description contains URLs or mentions web resources, fetch and analyze them.\n\n"
+                f"{self._base_context(card, list_name)}\n"
+                "If a URL is mentioned, fetch it and extract relevant information.\n"
+                "Count and list any repositories mentioned on the page.\n"
+                "Return a summary of findings."
+            ),
+            expected_output="A summary of web research findings, or confirmation that no web research was needed.",
+            agent=web_researcher,
+        )
+
         crew = Crew(
-            agents=[analyst, writer, reviewer],
-            tasks=[analyst_task, writer_task, review_task],
+            agents=[analyst, web_researcher, writer, reviewer],
+            tasks=[analyst_task, research_task, writer_task, review_task],
             process=Process.sequential,
             verbose=False,
             tracing=False,
@@ -162,7 +205,7 @@ class TrelloCrewWorkflow:
             "5. Next steps",
             "",
             "## Delivery Note",
-            f"OpenAI execution failed, so this draft was generated locally. Error: {exc}",
+            f"LLM execution failed, so this draft was generated locally. Error: {exc}",
         ]
         return "\n".join(lines)
 
