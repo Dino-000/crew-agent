@@ -1,0 +1,75 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+pip-wheel-metadata/
+wheelhouse/
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+.python-version
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+.coverage
+.cache
+.pytest_cache/
+pytest_cache/
+nosetests.xml
+coverage.xml
+htmlcov/
+
+# Type checkers
+.mypy_cache/
+.pyre/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+
+# Environment files
+.env
+.env.*
+
+# Project output/data (generated)
+/output/
+*.db
+*.sqlite3
+
+# pip self-check
+pip-selfcheck.json
