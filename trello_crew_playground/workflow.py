@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from crewai import Agent, Crew, LLM, Process, Task
+from crewai.hooks.llm_hooks import register_after_llm_call_hook
 
 from trello_crew_playground.schemas import TrelloCard, WorkflowResult
 from trello_crew_playground.settings import Settings
@@ -17,6 +18,32 @@ from trello_crew_playground.tools import (
 class TrelloCrewWorkflow:
     def __init__(self, settings: Settings):
         self.settings = settings
+        # Register a global after-LLM-call hook to log responses from local LLMs
+        # Ensure we only register once per process
+        try:
+            if self.settings.use_local_llm:
+                # Hook function will be called with a LLMCallHookContext
+                def _log_local_llm_response(context):
+                    try:
+                        response = context.response or ""
+                        llm = getattr(context, "llm", None)
+                        model = getattr(llm, "model", None) if llm is not None else None
+                        agent_role = getattr(context.agent, "role", "direct") if hasattr(context, "agent") else "direct"
+                        task_desc = getattr(context.task, "description", "") if hasattr(context, "task") else ""
+                        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                        log_dir = self.settings.output_dir
+                        log_dir.mkdir(parents=True, exist_ok=True)
+                        log_path = log_dir / "llm_responses.log"
+                        with open(log_path, "a", encoding="utf-8") as f:
+                            f.write(f"---\n{timestamp}\nModel: {model}\nAgent: {agent_role}\nTask: {task_desc}\nResponse:\n{response}\n\n")
+                    except Exception:
+                        # Don't let logging interfere with LLM execution
+                        pass
+
+                register_after_llm_call_hook(_log_local_llm_response)
+        except Exception:
+            # Safe-guard: if hooks aren't available, continue without logging
+            pass
 
     def _ollama_base_url(self) -> str:
         base_url = self.settings.ollama_base_url.rstrip("/")
@@ -33,6 +60,11 @@ class TrelloCrewWorkflow:
         )
 
     def run(self, card: TrelloCard, list_name: str) -> WorkflowResult:
+        # Instruction to prevent models from outputting chain-of-thought
+        NO_CHAIN_OF_THOUGHT = (
+            "IMPORTANT: Do NOT include chain-of-thought, internal reasoning, or step-by-step\n"
+            "explanations in your response. Provide only the final answer in the requested format."
+        )
         if not self.settings.use_crewai:
             raw_output = self._fallback_output(card, list_name, RuntimeError("CrewAI disabled by config"))
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -52,15 +84,12 @@ class TrelloCrewWorkflow:
                 meta={"file_name": file_name, "mode": "local"},
             )
 
-        # Use local Ollama LLM if enabled, otherwise fall back to OpenAI
-        if self.settings.use_local_llm:
-            llm = LLM(
-                model=self.settings.ollama_model,
-                base_url=self._ollama_base_url(),
-                api_key="ollama",  # Ollama doesn't require authentication by default
-            )
-        else:
-            llm = LLM(model=f"openai/{self.settings.openai_model}")
+        # Use Ollama LLM (local) for all agent calls
+        llm = LLM(
+            model=f"ollama/{self.settings.ollama_model}",
+            base_url=self._ollama_base_url(),
+            api_key="ollama",  # Ollama doesn't require authentication by default
+        )
 
         analyst = Agent(
             role="Requirement Analyst",
@@ -75,10 +104,15 @@ class TrelloCrewWorkflow:
 
         web_researcher = Agent(
             role="Web Researcher",
-            goal="Fetch and analyze web pages to find specific information and answer questions.",
+            goal=(
+                "Fetch and analyze web pages to find specific information and answer "
+                "questions. When a web page is the primary source, produce a concise"
+                " summary suitable for a Trello comment (3-6 bullets, short sentences)."
+            ),
             backstory=(
                 "You are skilled at browsing the web, extracting relevant information, "
-                "and answering specific questions about page content."
+                "and producing short, actionable summaries tailored for team cards. "
+                "If asked, include a short bullet list of key points and the page title."
             ),
             verbose=False,
             llm=llm,
@@ -116,6 +150,7 @@ class TrelloCrewWorkflow:
                 "2. Important assumptions.\n"
                 "3. Missing information, if any.\n"
                 "4. A recommended outline for the final training document."
+                f"\n\n{NO_CHAIN_OF_THOUGHT}"
             ),
             expected_output="A compact structured requirement brief in markdown.",
             agent=analyst,
@@ -126,6 +161,7 @@ class TrelloCrewWorkflow:
                 "Using the requirement brief above, draft the training document.\n"
                 "The topic should be practical and easy to follow.\n"
                 "Keep the structure focused on an intro, core explanation, examples, and next steps."
+                f"\n\n{NO_CHAIN_OF_THOUGHT}"
             ),
             expected_output="A polished markdown training document draft.",
             agent=writer,
@@ -135,6 +171,7 @@ class TrelloCrewWorkflow:
             description=(
                 "Review the draft and produce a final version.\n"
                 "Fix weak phrasing, fill obvious gaps, and make the result ready to share in Trello."
+                f"\n\n{NO_CHAIN_OF_THOUGHT}"
             ),
             expected_output="A final markdown training document with a short top summary.",
             agent=reviewer,
@@ -145,8 +182,11 @@ class TrelloCrewWorkflow:
                 "If the card description contains URLs or mentions web resources, fetch and analyze them.\n\n"
                 f"{self._base_context(card, list_name)}\n"
                 "If a URL is mentioned, fetch it and extract relevant information.\n"
-                "Count and list any repositories mentioned on the page.\n"
-                "Return a summary of findings."
+                "Produce a concise summary suitable for a Trello comment: include the page title,\n"
+                "the URL, and 3–6 short bullet points with the most important facts or actions.\n"
+                "Also count and list any repositories mentioned on the page.\n"
+                "Return the summary in plain markdown format."
+                f"\n\n{NO_CHAIN_OF_THOUGHT}"
             ),
             expected_output="A summary of web research findings, or confirmation that no web research was needed.",
             agent=web_researcher,
